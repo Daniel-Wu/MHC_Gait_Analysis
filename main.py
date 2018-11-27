@@ -44,7 +44,7 @@ z = walk_test_data['z']
 ax.plot(x, y, z)
 plt.show()
 
-if(True):
+if(False):
     input_dim = len(x)
     encoding_dim = 64
     
