@@ -13,11 +13,11 @@ import itertools as it
 import pandas as pd
 
 #directory_in_str = '/scratch/PI/euan/projects/mhc/data/6mwt/accel_walk_dir'
-directory_in_str = 'C:/Users/dwubu/Desktop/6mwtData';
+directory_in_str = 'C:/Users/dwubu/Desktop/6mwtInhouseData/Rest';
 directory = os.fsencode(directory_in_str)
 
 #final_directory_in_str = '/scratch/PI/euan/projects/mhc/data/6mwtwindows'
-final_directory_in_str = 'C:/Users/dwubu/Desktop/6mwtWindows';
+final_directory_in_str = 'C:/Users/dwubu/Desktop/6mwtInhouseWindows/Rest';
 final_directory = os.fsencode(final_directory_in_str)
 
 # Set overlap to the amount you want the sliding windows to have in common 

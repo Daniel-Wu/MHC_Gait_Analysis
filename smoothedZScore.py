@@ -59,7 +59,7 @@ def findPeaks(data):
     
     for i in range(len(filteredData) - 1):
         #Check if this is the first i
-        if filteredData[i] != 1 and filteredData[i+1] == 1:
+        if filteredData[i] == 0 and abs(filteredData[i+1]) == 1:
             maxima.append(i + 1)
             
     return maxima
@@ -89,7 +89,12 @@ if __name__ == "__main__":
             #For each window
             pass
         
-        y = series['zwindows']
+# =============================================================================
+#         Set data metric
+# =============================================================================
+        #y = series['zwindows']
+        #Testing euclidean
+        y = np.sqrt(np.power(x, 2) + np.power(y, 2) + np.power(z,2))
     
     
     
@@ -100,25 +105,28 @@ if __name__ == "__main__":
     
     # Run algo with settings from above
     result = thresholding_algo(y, lag=lag, threshold=threshold, influence=influence)
+        
+    #plot algorithm
+    plt.figure()
+    plt.plot(np.arange(1, len(y)+1), y, label='data')
+    plt.plot(np.arange(1, len(y)+1),
+                   result["avgFilter"], label='avg filter')
+        
+    plt.plot(np.arange(1, len(y)+1),
+                   result["avgFilter"] + threshold * result["stdFilter"], color="green")
+        
+    plt.plot(np.arange(1, len(y)+1),
+               result["avgFilter"] - threshold * result["stdFilter"], color="green")
+    plt.legend()
+    plt.title('z-score smoothing')
     
-    # Plot result
-    pylab.subplot(211)
-    pylab.plot(np.arange(1, len(y)+1), y)
-    
-    pylab.plot(np.arange(1, len(y)+1),
-               result["avgFilter"], color="cyan", lw=2)
-    
-    pylab.plot(np.arange(1, len(y)+1),
-               result["avgFilter"] + threshold * result["stdFilter"], color="green", lw=2)
-    
-    pylab.plot(np.arange(1, len(y)+1),
-               result["avgFilter"] - threshold * result["stdFilter"], color="green", lw=2)
-    
-    pylab.subplot(212)
-    pylab.step(np.arange(1, len(y)+1), result["signals"], color="red", lw=2)
-    pylab.ylim(-1.5, 1.5)
-    
-    
+    #Plot signals
+    plt.figure()
+    plt.step(np.arange(1, len(y)+1), result["signals"])
+    plt.title('Signals')
+    plt.ylim(-1.5, 1.5)
+
+    #Plot only first point of positive peaks
     filteredData = [0]*len(y)
     peaks = findPeaks(y)
     

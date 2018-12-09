@@ -23,6 +23,18 @@ def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
     y = lfilter(b, a, data)
     return y
 
+def butter_lowpass(lowcut, fs, order=5):
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    b, a = butter(order, low, btype='low')
+    return b, a
+
+
+def butter_lowpass_filter(data, lowcut, fs, order=5):
+    b, a = butter_lowpass(lowcut, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
+
 
 if __name__ == "__main__":
     import numpy as np
@@ -35,7 +47,7 @@ if __name__ == "__main__":
     highcut = 1250.0
 
     # Plot the frequency response for a few different orders.
-    plt.figure(1)
+    plt.figure()
     plt.clf()
     for order in [3, 6, 9]:
         b, a = butter_bandpass(lowcut, highcut, fs, order=order)
@@ -48,6 +60,24 @@ if __name__ == "__main__":
     plt.ylabel('Gain')
     plt.grid(True)
     plt.legend(loc='best')
+    plt.title("Shape of Butterworth Bandpass Filter")
+
+
+    plt.figure()
+    plt.clf()
+    for order in [3, 6, 9]:
+        b, a = butter_lowpass(lowcut, fs, order=order)
+        w, h = freqz(b, a, worN=2000)
+        plt.plot((fs * 0.5 / np.pi) * w, abs(h), label="order = %d" % order)
+
+    plt.plot([0, 0.5 * fs], [np.sqrt(0.5), np.sqrt(0.5)],
+             '--', label='sqrt(0.5)')
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Gain')
+    plt.grid(True)
+    plt.legend(loc='best')
+    plt.title("Shape of Butterworth Lowpass Filter")
+
 
     # Filter a noisy signal.
     T = 0.05
@@ -59,7 +89,7 @@ if __name__ == "__main__":
     x += 0.01 * np.cos(2 * np.pi * 312 * t + 0.1)
     x += a * np.cos(2 * np.pi * f0 * t + .11)
     x += 0.03 * np.cos(2 * np.pi * 2000 * t)
-    plt.figure(2)
+    plt.figure()
     plt.clf()
     plt.plot(t, x, label='Noisy signal')
 
