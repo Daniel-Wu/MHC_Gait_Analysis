@@ -2,6 +2,9 @@
 """
 Created on Mon Nov 12 10:21:52 2018
 
+An LSTM model for the prediction of cardiovascular risk from
+triaxial acceleometry data.
+
 @author: dwubu
 """
 
