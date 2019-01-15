@@ -22,6 +22,7 @@ from sklearn import preprocessing
 
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Reshape, Input, LSTM
+from keras.layers import BatchNormalization, Activation
 from keras.layers import Conv1D, MaxPooling1D, GlobalAveragePooling1D
 
 # =============================================================================
@@ -48,7 +49,7 @@ def makeDatasets(window_directory_str):
             #Reshape to size (window_length, 3)
             window = np.swapaxes(window, 0, 1)
             #Normalize between 0 and 1
-            window = preprocessing.MinMaxScaler().fit_transform(window)            
+            #window = preprocessing.MinMaxScaler().fit_transform(window)            
             #Add to complete data container
             all_data.append(window)
     
@@ -81,15 +82,21 @@ y_train = np.concatenate((np.array([1] * len(walk_data)), np.array([0] * len(res
 # =============================================================================
  
 model = Sequential()
-model.add(Conv1D(100, 10, activation='relu', input_shape=(200, 3)))
-model.add(Conv1D(100, 10, activation='relu'))
-model.add(MaxPooling1D(3))
+#Apparently there's a paper that says BatchNormalization is best before activation
+model.add(Conv1D(100, 10, input_shape=(200, 3)))
+model.add(BatchNormalization())
+model.add(Activation('relu'))
 
-model.add(Conv1D(160, 10, activation='relu'))
-model.add(Conv1D(160, 10, activation='relu'))
+#OLD MODEL which overfits
+#model.add(Conv1D(100, 10, activation='relu', input_shape=(200, 3)))
+#model.add(Conv1D(100, 10, activation='relu'))
+#model.add(MaxPooling1D(3))
+
+#model.add(Conv1D(160, 10, activation='relu'))
+#model.add(Conv1D(160, 10, activation='relu'))
 
 model.add(GlobalAveragePooling1D())
-model.add(Dropout(0.5))
+model.add(Dropout(0.8))
 #Output layer - 0 is resting, 1 is walking
 model.add(Dense(1, activation='sigmoid'))
 print(model.summary())

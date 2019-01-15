@@ -1,4 +1,4 @@
-r# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Created on Thu Dec 27 21:31:07 2018
 
@@ -19,6 +19,17 @@ import h5py
 import pandas as pd
 from scipy.signal import butter, lfilter
     
+# =============================================================================
+# Change these vars
+# =============================================================================
+
+#Raw acceleometry data to read
+in_directory = r"C:\Users\dwubu\Desktop\accel_rest_dir" #r"/scratch/PI/euan/projects/mhc/data/6mwt/accel_walk_dir"
+
+#Place to save final data
+out_directory = r"C:\Users\dwubu\Desktop\subset_data" #r"/scratch/users/danjwu/6mwt_windows
+filename = "data_windows_rest.hdf5"
+
 # =============================================================================
 # Helper functions for applying the lowpass filter
 # =============================================================================
@@ -71,7 +82,7 @@ def process_data(window_length, window_overlap, data_dir):
     #Read in JSON
     raw_data = pd.read_json(data_dir).set_index('timestamp')
     
-    #Process the 9-axis acceleometry data
+    #Process the user-generated acceleometry data
     #Put into array form
     x = np.asarray(raw_data.x)
     y = np.asarray(raw_data.y)
@@ -97,31 +108,25 @@ def process_data(window_length, window_overlap, data_dir):
 
     return df
 
+def save_data(hdf_dataset, df):
+    '''Takes a dataframe df containing 'xwindows', 'ywindows', 'zwindows'
+       properties which contain acceleometry data.
+       Saves these windows in hdf_dataset, an open h5py File.dataset.
+    '''
+    #Go through each window in the dataframe
+    for index, series in df.iterrows():
+        #Isolate a nparray of just the x, y, z, acceleometry of size (3, window_length)
+        window = np.swapaxes([series['xwindows'], series['ywindows'], series['zwindows']], 0, 1)
+        print("saving window number {}".format(hdf_dataset.shape[0] - 1))
+        hdf_dataset[hdf_dataset.shape[0] - 1,:,:] = window
+        hdf_dataset.resize((hdf_dataset.shape[0] + 1), axis = 0)
+        hdf_dataset.flush()
+            
 #Process and save ~200GB of data to personal $SCRATCH
 #The resulting hdf5 file is 6.8 GB, containing roughly 8100 6mwts
-if True:
+if __name__ == "__main__":
     
-    def save_data(hdf_dataset, df):
-        '''Takes a dataframe df containing 'xwindows', 'ywindows', 'zwindows'
-           properties which contain acceleometry data.
-           Saves these windows in hdf_dataset, an open h5py File.dataset.
-        '''
-        #Go through each window in the dataframe
-        for index, series in df.iterrows():
-            #Isolate a nparray of just the x, y, z, acceleometry of size (3, window_length)
-            window = np.swapaxes([series['xwindows'], series['ywindows'], series['zwindows']], 0, 1)
-            print("saving window number {}".format(hdf_dataset.shape[0] - 1))
-            hdf_dataset[hdf_dataset.shape[0] - 1,:,:] = window
-            hdf_dataset.resize((hdf_dataset.shape[0] + 1), axis = 0)
-            hdf_dataset.flush()
-    
-    #Raw acceleometry data to read
-    in_directory = r"C:\Users\dwubu\Desktop\accel_rest_dir" #r"/scratch/PI/euan/projects/mhc/data/6mwt/accel_walk_dir"  #local in
-    #Unused, for now, will later make read from rest data
-    other_directory = r"/scratch/PI/euan/projects/mhc/data/6mwt/accel_rest_dir"
-    #Place to save final data
-    out_directory = r"C:\Users\dwubu\Desktop\subset_data" #r"/scratch/users/danjwu/6mwt_windows" # #local dest
-    filename = "data_windows_rest.hdf5"
+
     
     #Length of window, in hundredths of seconds
     window_length = 200
@@ -129,34 +134,24 @@ if True:
     window_overlap = 99
     
     #Initialize an hdf5 file to write to
-    hdf = h5py.File(os.path.join(out_directory, filename), 'w')
-    #dataset contains data of size (samples, window_length, num_dims)
-    hdf_data = hdf.create_dataset('data', (1, window_length, 3),  maxshape=(None, window_length, 3))
-
+    with h5py.File(os.path.join(out_directory, filename), 'w') as hdf:
+        #dataset contains data of size (samples, window_length, num_dims)
+        hdf_data = hdf.create_dataset('data', (1, window_length, 3),  maxshape=(None, window_length, 3))
     
-    for dirpath, dirnames, filename in os.walk(in_directory):
-        # this is so that there is only one file per healthCode
-        i = 0
-        for file in filename:
-            #Commented out - on local storage, I put all the files in one place, so i want multiple files from the same folder
-            #df = process_data(window_length, window_overlap, os.path.join(dirpath, file))
-            #save_data(hdf_data, df)
-            while (i < 1):
-                #For sherlock cluster - get one test per healthcode
-                df = process_data(window_length, window_overlap, os.path.join(dirpath, file))
-                save_data(hdf_data, df)
-                i += 1
-             
-                
-    #Whoops we added an extra empty space for a window, trim it and close the file
-    hdf_data.resize(hdf_data.shape[0] - 1, axis = 0)
-    hdf.close()
-
-##Test the process data function against past work on local device
-#if __name__ == "__main__":
-#    data_dir = r"C:\Users\dwubu\Desktop\6mwtInhouseData\Walk\ben_walk.json"
-#    test = process_data(200, 99, data_dir)
-#    raw_data = pd.read_json(data_dir).set_index('timestamp')
-#    import matplotlib.pyplot as plt
-#    plt.plot(np.asarray(raw_data.x)[0:200])
-#    plt.plot(test['xwindows'].iloc[0])
+        
+        for dirpath, dirnames, filename in os.walk(in_directory):
+            i = 0
+            for file in filename:
+                #Commented out - on local storage, I put all the files in one place, so i want multiple files from the same folder
+                #df = process_data(window_length, window_overlap, os.path.join(dirpath, file))
+                #save_data(hdf_data, df)
+                while (i < 1):
+                    #For sherlock cluster - get one test per healthcode
+            # this is so that there is only one file per healthCode
+                    df = process_data(window_length, window_overlap, os.path.join(dirpath, file))
+                    save_data(hdf_data, df)
+                    i += 1
+                                
+        #Whoops we added an extra empty space for a window, trim it and close the file
+        hdf_data.resize(hdf_data.shape[0] - 1, axis = 0)
+        hdf.close()

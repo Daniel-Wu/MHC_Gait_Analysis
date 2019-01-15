@@ -12,13 +12,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def validate_window(series):
-    '''
-    validate_window
-    Checks a pandas dataframe to see if the data is anomalous
-    '''
-    return True
-
 def hann(window):
     '''
     hann
