@@ -34,7 +34,7 @@ out_directory = r"C:\Users\dwubu\Desktop\subset_data" #r"/scratch/users/danjwu/6
 filename = "data_windows_rest.hdf5"
 
 #Place to get pedometer data
-ped_directory = r"C:\Users\dwubu\Documents\mhc\pedometer_walk_dir\0aef5d8d-d32e-4f03-b0b2-4b727d0f5d71\8182560.0"
+ped_directory = r"C:\Users\dwubu\Documents\mhc\pedometer_walk_dir\ee621e22-c7c2-45dc-b22d-3a9c59fe6e78\2648577.0"
 
 # =============================================================================
 # Helper functions for applying the lowpass filter
@@ -56,9 +56,17 @@ def butter_lowpass_filter(data, lowcut, fs, order=5):
 # Helper functions for data slicing and normalization
 # =============================================================================
     
-def moving_window(accelx, length, overlap, step=1):
-    streams = it.tee(accelx, length)
-    return zip(*[it.islice(stream, i, None, step + overlap) for stream, i in zip(streams, it.count(step=step))])
+#def moving_window(accelx, length, overlap, step=1):
+#    streams = it.tee(accelx, length)
+#    return zip(*[it.islice(stream, i, None, step + overlap) for stream, i in zip(streams, it.count(step=step))])
+
+def moving_window(data, length, overlap):
+    shape = (data.size - length + 1, length)
+    strides = data.strides * 2
+    view = np.lib.stride_tricks.as_strided(data, shape=shape, strides=strides)[0::length - overlap]
+    return view.copy()
+
+
 
 def normalize_dataset(dataframe):
     return (dataframe - dataframe.mean())

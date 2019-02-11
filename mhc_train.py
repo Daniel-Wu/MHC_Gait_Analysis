@@ -27,6 +27,7 @@ import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Reshape, Input
 from keras.layers import Conv1D, MaxPooling1D, GlobalAveragePooling1D
+from keras.callbacks import ReduceLROnPlateau
 
 
 #Contains data for walk tests
@@ -110,6 +111,8 @@ model.compile(loss='binary_crossentropy',
 # Training the model
 # =============================================================================
 
+
+
 batch_size = 16
 
 training_batch_generator = SixMWTSequence(walk_data_file, rest_data_file, batch_size)
@@ -120,10 +123,15 @@ num_training_samples = len(training_batch_generator)
 num_validation_samples = 0
 num_epochs = 20
 
+#Callbacks
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                              patience=5, min_lr=0.001)
+
 model.fit_generator(generator=training_batch_generator,
                     steps_per_epoch=(num_training_samples // batch_size),
                     epochs=num_epochs,
                     verbose=1,
+                    #callbacks = [reduce_lr],
                     #validation_data=validation_batch_generator,
                     #validation_steps=(num_validation_samples // batch_size),
                     use_multiprocessing=True,

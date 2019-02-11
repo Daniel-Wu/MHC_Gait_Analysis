@@ -16,6 +16,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import os
+import random
 
 from sklearn import metrics
 from sklearn import preprocessing
@@ -24,6 +25,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Reshape, Input, LSTM
 from keras.layers import BatchNormalization, Activation
 from keras.layers import Conv1D, MaxPooling1D, GlobalAveragePooling1D
+from keras.callbacks import ReduceLROnPlateau
 
 # =============================================================================
 # Import File Data and assemble dataset
@@ -77,6 +79,10 @@ rest_data = makeDatasets(data_dir)
 x_train = np.concatenate((walk_data, rest_data), axis=0)
 y_train = np.concatenate((np.array([1] * len(walk_data)), np.array([0] * len(rest_data))))
 
+#Randomize the data with a consistent seed
+random.Random(42).shuffle(x_train)
+random.Random(42).shuffle(y_train)
+
 # =============================================================================
 # Define Model Architecture        
 # =============================================================================
@@ -89,14 +95,14 @@ model.add(Activation('relu'))
 
 #OLD MODEL which overfits
 #model.add(Conv1D(100, 10, activation='relu', input_shape=(200, 3)))
-#model.add(Conv1D(100, 10, activation='relu'))
+model.add(Conv1D(100, 10, activation='relu'))
 #model.add(MaxPooling1D(3))
 
 #model.add(Conv1D(160, 10, activation='relu'))
 #model.add(Conv1D(160, 10, activation='relu'))
 
 model.add(GlobalAveragePooling1D())
-model.add(Dropout(0.8))
+model.add(Dropout(0.3))
 #Output layer - 0 is resting, 1 is walking
 model.add(Dense(1, activation='sigmoid'))
 print(model.summary())
@@ -109,15 +115,17 @@ model.compile(loss='binary_crossentropy',
 BATCH_SIZE = 32
 EPOCHS = 20
 
-#Currently arbitrarily taking 521 walk points and 100 rest points as validation
-#This is a bad split, but lazy
-history = model.fit(x_train[521:-100],
-                    y_train[521:-100],
+#Callbacks
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                              patience=5, min_lr=0.001)
+
+#Fit the model, with 20% validation
+history = model.fit(x_train,
+                    y_train,
                     batch_size=BATCH_SIZE,
                     epochs=EPOCHS,
-                    validation_split=0,
-                    validation_data=(np.concatenate((x_train[:521], x_train[-100:]), axis = 0), 
-                                     np.concatenate((y_train[:521], y_train[-100:]), axis = 0)))
+                    callbacks = [reduce_lr],
+                    validation_split=0.2)
 #%%
 # =============================================================================
 # Plot Training History
