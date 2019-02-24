@@ -92,9 +92,9 @@ if __name__ == "__main__":
 # =============================================================================
 #         Set data metric
 # =============================================================================
-        #y = series['zwindows']
+        y = series['zwindows']
         #Testing euclidean
-        y = np.sqrt(np.power(x, 2) + np.power(y, 2) + np.power(z,2))
+        #y = np.sqrt(np.power(x, 2) + np.power(y, 2) + np.power(z,2))
     
     
     

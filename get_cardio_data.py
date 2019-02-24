@@ -34,4 +34,3 @@ def get_cardio_data(healthcodes = []):
     #table = table.loc[healthcodes]
     
     return table
-

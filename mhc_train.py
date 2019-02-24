@@ -23,12 +23,14 @@ import numpy as np
 import pandas as pd
 import h5py
 import keras
+import threading
 
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Reshape, Input
 from keras.layers import Conv1D, MaxPooling1D, GlobalAveragePooling1D
 from keras.callbacks import ReduceLROnPlateau
 
+#from concise.metrics import tpr, tnr, fpr, fnr, precision, f1
 
 #Contains data for walk tests
 output_dir = r"C:\Users\dwubu\Desktop" #"/scratch/users/danjwu/results"
@@ -47,7 +49,8 @@ class SixMWTSequence(keras.utils.Sequence):
     '''
     def __init__(self, walk_data_path, rest_data_path, batch_size):
         #Open up files
-        self.walk_file = h5py.File(walk_data_path, 'r')        
+        self.lock = threading.Lock()
+        self.walk_file = h5py.File(walk_data_path, 'r')
         self.rest_file = h5py.File(rest_data_path, 'r')
         self.walk_data = self.walk_file['data']
         self.rest_data = self.rest_file['data']
@@ -68,15 +71,16 @@ class SixMWTSequence(keras.utils.Sequence):
 
     def __getitem__(self, idx):
         
-        #Grab the batch members
-        batch_x = np.concatenate((self.walk_data[idx * self.num_walk_points : (idx + 1) * self.num_walk_points], 
-                                  self.rest_data[idx * self.num_rest_points : (idx + 1) * self.num_rest_points]))
-
-        #Generate the labels
-        batch_y = np.concatenate(([1]*self.num_walk_points, [0]*self.num_rest_points))
-        
-        return batch_x, batch_y
+        with self.lock:
+            #Grab the batch members
+            batch_x = np.concatenate((self.walk_data[idx * self.num_walk_points : (idx + 1) * self.num_walk_points], 
+                                      self.rest_data[idx * self.num_rest_points : (idx + 1) * self.num_rest_points]))
     
+            #Generate the labels
+            batch_y = np.concatenate(([1]*self.num_walk_points, [0]*self.num_rest_points))
+            
+            return batch_x, batch_y
+        
     def __del__(self):
         self.walk_file.close()
         self.rest_file.close()
@@ -103,7 +107,7 @@ print(model.summary())
 
 model.compile(loss='binary_crossentropy',
               optimizer='adam',
-              metrics=['accuracy'])
+              metrics=['accuracy'])#,tpr,tnr,fpr,fnr,precision,f1])
 
 
 
@@ -134,8 +138,8 @@ model.fit_generator(generator=training_batch_generator,
                     #callbacks = [reduce_lr],
                     #validation_data=validation_batch_generator,
                     #validation_steps=(num_validation_samples // batch_size),
-                    use_multiprocessing=True,
-                    workers=16,
+                    use_multiprocessing=False, #Windows must be False, else true
+                    workers=8,
                     max_queue_size=32)
 
 ### Version with all data loaded into memory
