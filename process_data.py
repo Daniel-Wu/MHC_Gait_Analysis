@@ -215,8 +215,6 @@ def save_data(hdf_dataset, df):
 ##The resulting hdf5 file is 6.8 GB, containing roughly 8100 6mwts
 #if __name__ == "__main__":
 #    
-#
-#    
 #    #Length of window, in hundredths of seconds
 #    window_length = 200
 #    #overlap of subsequent windows, in hundredths of seconds
