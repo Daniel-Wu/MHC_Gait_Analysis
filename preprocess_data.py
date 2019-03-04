@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Dec 27 21:31:07 2018
+Created on Sun, March 3rd, 2019
 
 Provides a single function, process_data, which does the data preprocessing
 Built to read the jsons in walk_data_dir
 
-Unifies the contents of make_windows.py, filter_windows.py, butterworth.py,
-and process_pedometer_data.py
+Unifies the contents of make_windows.py, filter_windows.py, butterworth.py
 
-THIS IS OLD - use preprocess_data.py
+Creates an HDF file organized by healthcode datasets containing windows
 
-@author: dwubu
+@author: Daniel Wu
 """
 # =============================================================================
 # Import dependencies
@@ -28,15 +27,21 @@ from scipy.signal import butter, lfilter
 # Change these vars
 # =============================================================================
 
+on_sherlock = False
+want_pedometer_data = False
+
 #Raw acceleometry data to read
-in_directory = r"C:\Users\dwubu\Desktop\accel_rest_dir" #r"/scratch/PI/euan/projects/mhc/data/6mwt/accel_walk_dir"
+if(on_sherlock):
+    in_directory = r"/scratch/PI/euan/projects/mhc/data/6mwt/accel_walk_dir"
+    out_directory = r"/scratch/PI/euan/projects/mhc/code/daniel_code"
 
+else:
+    in_directory = r"C:\Users\dwubu\Desktop\accel_walk_dir"
+    out_directory = r"C:\Users\dwubu\Desktop\subset_data" 
+    
 #Place to save final data
-out_directory = r"C:\Users\dwubu\Desktop\subset_data" #r"/scratch/users/danjwu/6mwt_windows
-filename = "data_windows_rest.hdf5"
+filename = "data_windows_walk.hdf5"
 
-#Place to get pedometer data
-ped_directory = r"C:\Users\dwubu\Documents\mhc\pedometer_walk_dir\ee621e22-c7c2-45dc-b22d-3a9c59fe6e78\2648577.0"
 
 # =============================================================================
 # Helper functions for applying the lowpass filter
@@ -69,12 +74,11 @@ def moving_window(data, length, overlap):
     return view.copy()
 
 
-
 def normalize_dataset(dataframe):
     return (dataframe - dataframe.mean())
 
 # =============================================================================
-# PEDOMETER
+# PEDOMETER - Unused
 # =============================================================================
 
 # =============================================================================
@@ -189,14 +193,23 @@ def process_data(window_length, window_overlap, data_dir):
         y_[i] = butter_lowpass_filter(y_[i], lowcut, fs)
         z_[i] = butter_lowpass_filter(z_[i], lowcut, fs)
         
-    #Calculate pedometer steps
-    step_data = process_pedometer_data(window_length, window_overlap, len(x_), ped_directory)   #WHAT IS PEDOMETER DIR
-
-    #Return final dataframe
-    df = pd.DataFrame({'healthCode': os.path.basename(os.path.normpath(data_dir)), 
-                       'xwindows': x_, 'ywindows': y_, 'zwindows': z_, 'steps': step_data}, columns=['healthCode', 'xwindows', 
-                       'ywindows', 'zwindows', 'steps']).set_index('healthCode')
-
+    #Healthcode is the directory name
+    healthCode = data_dir.split(os.sep)[-2]
+    #Embed pedometer data
+    if(want_pedometer_data):
+        #Calculate pedometer steps
+        step_data = process_pedometer_data(window_length, window_overlap, len(x_), ped_directory)   #WHAT IS PEDOMETER DIR
+    
+        #Define final dataframe
+        df = pd.DataFrame({'healthCode': healthCode, 
+                           'xwindows': x_, 'ywindows': y_, 'zwindows': z_, 'steps': step_data}, columns=['healthCode', 'xwindows', 
+                           'ywindows', 'zwindows', 'steps']).set_index('healthCode')
+    else:
+        #Define final dataframe
+        df = pd.DataFrame({'healthCode': healthCode, 
+                           'xwindows': x_, 'ywindows': y_, 'zwindows': z_}, columns=['healthCode', 'xwindows', 
+                           'ywindows', 'zwindows']).set_index('healthCode')
+        
     return df
 
 def save_data(hdf_dataset, df):
@@ -213,34 +226,40 @@ def save_data(hdf_dataset, df):
         hdf_dataset.resize((hdf_dataset.shape[0] + 1), axis = 0)
         hdf_dataset.flush()
             
-##Process and save ~200GB of data to personal $SCRATCH
+##Process and save ~200GB of data to $SCRATCH
 ##The resulting hdf5 file is 6.8 GB, containing roughly 8100 6mwts
-#if __name__ == "__main__":
-#    
-#    #Length of window, in hundredths of seconds
-#    window_length = 200
-#    #overlap of subsequent windows, in hundredths of seconds
-#    window_overlap = 99
-#    
-#    #Initialize an hdf5 file to write to
-#    with h5py.File(os.path.join(out_directory, filename), 'w') as hdf:
-#        #dataset contains data of size (samples, window_length, num_dims)
-#        hdf_data = hdf.create_dataset('data', (1, window_length, 3),  maxshape=(None, window_length, 3))
-#    
-#        
-#        for dirpath, dirnames, filename in os.walk(in_directory):
-#            i = 0
-#            for file in filename:
-#                #Commented out - on local storage, I put all the files in one place, so i want multiple files from the same folder
-#                #df = process_data(window_length, window_overlap, os.path.join(dirpath, file))
-#                #save_data(hdf_data, df)
-#                while (i < 1):
-#                    #For sherlock cluster - get one test per healthcode
-#            # this is so that there is only one file per healthCode
-#                    df = process_data(window_length, window_overlap, os.path.join(dirpath, file))
-#                    save_data(hdf_data, df)
-#                    i += 1
-#                                
-#        #Whoops we added an extra empty space for a window, trim it and close the file
-#        hdf_data.resize(hdf_data.shape[0] - 1, axis = 0)
-#        hdf.close()
+if __name__ == "__main__":
+    
+    #Length of window, in hundredths of seconds
+    window_length = 200
+    #overlap of subsequent windows, in hundredths of seconds
+    window_overlap = 99
+    
+    #Initialize an hdf5 file to write to
+    with h5py.File(os.path.join(out_directory, filename), 'w') as hdf:
+        #dataset contains data of size (samples, window_length, num_dims)
+        
+        
+        for dirpath, dirnames, filename in os.walk(in_directory):
+            i = 0
+            for file in filename:
+
+                
+                #Commented out - on local storage, I put all the files in one place, so i want multiple files from the same folder
+                #df = process_data(window_length, window_overlap, os.path.join(dirpath, file))
+                #save_data(hdf_data, df)
+                
+                while (i < 1):
+                                    
+                    healthCode = dirpath.split(os.sep)[-1]
+                    print("Processing healthcode {}".format(healthCode))
+                    
+                    hdf_data = hdf.create_dataset(healthCode, (1, window_length, 3),  maxshape=(None, window_length, 3))
+                    
+                    #For sherlock cluster - get one test per healthcode
+                    df = process_data(window_length, window_overlap, os.path.join(dirpath, file))
+                    save_data(hdf_data, df)
+                    i += 1
+                                
+                    #Whoops we added an extra empty space for a window, trim it and close the file
+                    hdf_data.resize(hdf_data.shape[0] - 1, axis = 0)

@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Dec 27 21:42:42 2018
+Created on Sun Mar  3 21:26:35 2019
 
-Python script to be run on the sherlock cluster, which iterates through all 
+Python script to be run on the sherlock cluster, which iterates through selected healthcodes in 
 the MHC 2.0 6 minute walk test dataset, and trains a model on it
 
-Precondition: reads from an hdf5 file containing a 'data' group of shape
-(num_samples, window_length, 3) containing all the windows.
+Precondition: reads from an hdf5 file containing groups labeled by healthcode of shape
+(num_samples, window_length, 3) containing all the windows from that healthcode.
 
-Run process_data.py on the walk_data, then the rest_data
-Change output_dir, walk_data_file, and rest_data_file vars below to point
-at those files
+Run preprocess_data.py on the walk_data,
+Change output_dir, walk_data_file vars below to point at those files
 
 @author: Daniel Wu
 """
