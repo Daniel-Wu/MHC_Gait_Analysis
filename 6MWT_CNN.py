@@ -1,19 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Dec 27 21:42:42 2018
+Created on Mon Feb 25 11:32:33 2019
+6mwt CNN
 
-Python script to be run on the sherlock cluster, which iterates through all 
-the MHC 2.0 6 minute walk test dataset, and trains a model on it
+Reads in a labelled dataset and a result table, and trains a CNN on the data
 
-Precondition: reads from an hdf5 file containing a 'data' group of shape
-(num_samples, window_length, 3) containing all the windows.
-
-Run process_data.py on the walk_data, then the rest_data
-Change output_dir, walk_data_file, and rest_data_file vars below to point
-at those files
-
-@author: Daniel Wu
+@author: dwubu
 """
+
 import os
 import numpy as np
 import pandas as pd
@@ -21,12 +15,11 @@ import h5py
 import keras
 import threading
 import math
-import pickle
 
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Reshape, Input, BatchNormalization
 from keras.layers import Conv1D, MaxPooling1D, GlobalAveragePooling1D
-from keras.callbacks import ReduceLROnPlateau, EarlyStopping, TensorBoard
+from keras.callbacks import ReduceLROnPlateau
 
 
 #SET TO TRUE WHEN RUNNING ON SHERLOCK
@@ -90,7 +83,7 @@ def split_data(file_path, split, new_folder):
                 test_file['data'][i - split_num] = data[i]
                 
         
-        return (test_path, validation_path, split_num)
+        return (test_path, validation_path)
         
 
 
@@ -104,7 +97,7 @@ class SixMWTSequence(keras.utils.Sequence):
     Saves on RAM by loading data from hdf5 files in memory
     __del__ way of closing files isn't great - find a better way sometime
     '''
-    def __init__(self, walk_data_path, rest_data_path, batch_size, balanceDataset=False):
+    def __init__(self, walk_data_path, rest_data_path, batch_size):
         #Open up files
         self.lock = threading.Lock()
         self.walk_file = h5py.File(walk_data_path, 'r')
@@ -114,14 +107,9 @@ class SixMWTSequence(keras.utils.Sequence):
         
         self.batch_size = batch_size
         
-        if(balanceDataset):
-            #Enforce a 50/50 split in each batch
-            self.num_rest_points = int(self.batch_size / 2)
-            self.num_walk_points = self.batch_size - self.num_rest_points
-        else:
-            #Find the number of walk_data_points per batch, proportional to total data points
-            self.num_walk_points = int((self.walk_data.shape[0]/(self.walk_data.shape[0] + self.rest_data.shape[0])) * self.batch_size)
-            self.num_rest_points = self.batch_size - self.num_walk_points
+        #Find the number of walk_data_points per batch
+        self.num_walk_points = int((self.walk_data.shape[0]/(self.walk_data.shape[0] + self.rest_data.shape[0])) * self.batch_size)
+        self.num_rest_points = self.batch_size - self.num_walk_points
 
 
     def __len__(self):
@@ -208,76 +196,42 @@ model.compile(loss='binary_crossentropy',
 # Training the model
 # =============================================================================
 
-if(on_sherlock):
-    batch_size = 256
-    canMultiprocess = False
-else:
-    batch_size = 32
-    canMultiprocess = False
 
-#Split the dataset, if data not already split
-#if(on_sherlock):
-out_dir = os.path.join(os.path.dirname(walk_data_file), 'walk')
-validation_path = os.path.join(out_dir, "validation.hdf5")
-test_path = os.path.join(out_dir, "test.hdf5")
+batch_size = 16
 
-if(os.path.exists(validation_path) and os.path.exists(test_path)):
-    print("Loading existing data files")
-    walk_train = test_path
-    walk_validation = validation_path
-    
-    out_dir = os.path.join(os.path.dirname(walk_data_file), 'rest')
-    validation_path = os.path.join(out_dir, "validation.hdf5")
-    test_path = os.path.join(out_dir, "test.hdf5")
-    rest_train = test_path
-    rest_validation = validation_path
-        
-else:
-    (walk_train, walk_validation, num_walk) = split_data(walk_data_file, validation_split, 'walk')
-    (rest_train, rest_validation, num_rest) = split_data(rest_data_file, validation_split, 'rest')
+#Split the dataset
+(walk_train, walk_validation) = split_data(walk_data_file, validation_split, 'walk')
+(rest_train, rest_validation) = split_data(rest_data_file, validation_split, 'rest')
 
-#Make weights to balance the training set
-#class_weights = {0: num_rest/(num_rest + num_walk), 1: num_walk/(num_rest + num_walk)}
 
-#Alternatively, discard data so we have balanced training and validation sets
-training_batch_generator = SixMWTSequence(walk_train, rest_train, batch_size, True)
-validation_batch_generator = SixMWTSequence(walk_validation, rest_validation, batch_size, True)
+training_batch_generator = SixMWTSequence(walk_train, rest_train, batch_size)
+validation_batch_generator = SixMWTSequence(walk_validation, rest_validation, batch_size)
 
 num_training_samples = len(training_batch_generator)
 num_validation_samples = len(validation_batch_generator)
-num_epochs = 1000
-
-#%%
+num_epochs = 50
 
 #Callbacks
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                               patience=5, min_lr=0.001)
 
-early_stop = EarlyStopping(patience=7)
-
-tb = TensorBoard(log_dir=os.path.join(output_dir, 'logs'))
-
 history = model.fit_generator(generator=training_batch_generator,
-                              #steps_per_epoch=(num_training_samples // batch_size),
+                              steps_per_epoch=(num_training_samples // batch_size),
                               epochs=num_epochs,
                               verbose=1,
-                              callbacks = [reduce_lr, early_stop, tb],
+                              callbacks = [reduce_lr],
                               validation_data=validation_batch_generator,
-                              #validation_steps=(num_validation_samples // batch_size),
-                              #class_weight=class_weights,
-                              use_multiprocessing=canMultiprocess, #Windows must be False, else true
+                              validation_steps=(num_validation_samples // batch_size),
+                              use_multiprocessing=False, #Windows must be False, else true
                               workers=8,
                               max_queue_size=32)
 
 #Clean up the temp files
 del training_batch_generator
 del validation_batch_generator
-#os.remove(walk_train)
-#os.remove(rest_train)
-#os.remove(walk_validation)
-#os.remove(rest_validation)
+os.remove(walk_train)
+os.remove(rest_train)
+os.remove(walk_validation)
+os.remove(rest_validation)
 
-#Save history and model
-with open(os.path.join(output_dir, 'train_history.pkl'), 'wb') as file_pi:
-        pickle.dump(history.history, file_pi)
 model.save(os.path.join(output_dir, "model.h5"))

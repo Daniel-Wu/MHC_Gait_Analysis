@@ -30,6 +30,9 @@ Currently gets:
         
 and indexes by healthCode
 
+
+GET GENDER FROM NONIDENTIFIABLE DEMOGRAPHICS
+
 @author: dwubu
 """
 import numpy as np

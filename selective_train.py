@@ -9,7 +9,7 @@ Precondition: reads from an hdf5 file containing groups labeled by healthcode of
 (num_samples, window_length, 3) containing all the windows from that healthcode.
 
 Run preprocess_data.py on the walk_data,
-Change output_dir, walk_data_file vars below to point at those files
+Change output_dir, data_file vars below to point at those files
 
 @author: Daniel Wu
 """
@@ -34,12 +34,35 @@ on_sherlock = False
 #Contains data for walk tests
 if(on_sherlock):
     output_dir = "/scratch/PI/euan/projects/mhc/code/daniel_code/results"
-    walk_data_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/6mwt_windows/data_windows.hdf5"
-    rest_data_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/6mwt_windows/data_windows_rest.hdf5"
+    data_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/6mwt_windows/data_windows.hdf5"
+    label_table_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/combined_health_label_table.pkl"
 else:
     output_dir = r"C:\Users\dwubu\Desktop"
-    walk_data_file = r"C:\Users\dwubu\Desktop\subset_data\data_windows.hdf5"
-    rest_data_file = r"C:\Users\dwubu\Desktop\subset_data\data_windows_rest.hdf5"
+    data_file = r"C:\Users\dwubu\Desktop\subset_data\data_windows.hdf5"
+
+
+# =============================================================================
+# Extract only the needed data into a file
+# =============================================================================
+
+def extract_labels(labels = ['heartCondition'], label_table_path = label_table_file):
+    '''
+    Returns a dataframe indexed by healthCodes with columns of requested labels
+    taken from the label table file
+    '''
+    label_df = pickle.load(open(label_table_path, 'rb')) 
+    label_df = label_df[labels]
+    return label_df.dropna()
+        
+
+def extract_records(healthCodes, data_file):
+    '''
+    Extracts the all of the healthcodes in healthCodes
+    from the data_file and saves to a new hdf5 file
+    '''
+    
+    
+    return 0
 
 # =============================================================================
 # Split data files into validation and test
@@ -209,14 +232,24 @@ model.compile(loss='binary_crossentropy',
 
 if(on_sherlock):
     batch_size = 256
-    canMultiprocess = True
+    canMultiprocess = False
 else:
     batch_size = 32
     canMultiprocess = False
 
-#Split the dataset
-(walk_train, walk_validation, num_walk) = split_data(walk_data_file, validation_split, 'walk')
-(rest_train, rest_validation, num_rest) = split_data(rest_data_file, validation_split, 'rest')
+#Split the dataset, if data not already split
+if(on_sherlock):
+    out_dir = os.path.join(os.path.dirname(data_file), 'walk')
+    validation_path = os.path.join(out_dir, "validation.hdf5")
+    test_path = os.path.join(out_dir, "test.hdf5")
+    
+    if(os.path.exists(validation_path) and os.path.exists(test_path)):
+        print("Loading existing data files")
+        walk_train = test_path
+        walk_validation = validation_path
+            
+    else:
+        (walk_train, walk_validation, num_walk) = split_data(data_file, validation_split, 'walk')
 
 #Make weights to balance the training set
 #class_weights = {0: num_rest/(num_rest + num_walk), 1: num_walk/(num_rest + num_walk)}
@@ -240,12 +273,10 @@ early_stop = EarlyStopping(patience=7)
 tb = TensorBoard(log_dir=os.path.join(output_dir, 'logs'))
 
 history = model.fit_generator(generator=training_batch_generator,
-                              steps_per_epoch=(num_training_samples // batch_size),
                               epochs=num_epochs,
                               verbose=1,
                               callbacks = [reduce_lr, early_stop, tb],
                               validation_data=validation_batch_generator,
-                              validation_steps=(num_validation_samples // batch_size),
                               #class_weight=class_weights,
                               use_multiprocessing=canMultiprocess, #Windows must be False, else true
                               workers=8,
@@ -254,10 +285,10 @@ history = model.fit_generator(generator=training_batch_generator,
 #Clean up the temp files
 del training_batch_generator
 del validation_batch_generator
-os.remove(walk_train)
-os.remove(rest_train)
-os.remove(walk_validation)
-os.remove(rest_validation)
+#os.remove(walk_train)
+#os.remove(rest_train)
+#os.remove(walk_validation)
+#os.remove(rest_validation)
 
 #Save history and model
 with open(os.path.join(output_dir, 'train_history.pkl'), 'wb') as file_pi:
