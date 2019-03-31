@@ -11,9 +11,15 @@ Precondition: reads from an hdf5 file containing groups labeled by healthcode of
 Run preprocess_data.py on the walk_data,
 Change output_dir, data_file vars below to point at those files
 
+TODO:
+    Make this work with local filepaths
+    Rewrite the generator
+    Rewrite split data
+
 @author: Daniel Wu
 """
 import os
+import platform
 import numpy as np
 import pandas as pd
 import h5py
@@ -28,18 +34,38 @@ from keras.layers import Conv1D, MaxPooling1D, GlobalAveragePooling1D
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, TensorBoard
 
 
-#SET TO TRUE WHEN RUNNING ON SHERLOCK
-on_sherlock = False
+#True when on sherlock (or any other linux system)
+on_sherlock = platform.system() == 'Linux'
 
-#Contains data for walk tests
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+validation_split = 0.4
+labels_of_interest = ["heartCondition"]
+
+#File locations
 if(on_sherlock):
     output_dir = "/scratch/PI/euan/projects/mhc/code/daniel_code/results"
-    data_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/6mwt_windows/data_windows.hdf5"
+    data_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/data_windows_walk.hdf5"
     label_table_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/combined_health_label_table.pkl"
 else:
     output_dir = r"C:\Users\dwubu\Desktop"
     data_file = r"C:\Users\dwubu\Desktop\subset_data\data_windows.hdf5"
 
+#Training metrics
+if(on_sherlock):
+    from concise.metrics import tpr, tnr, fpr, fnr, precision, f1
+    model_metrics = ['accuracy',tpr,tnr,fpr,fnr,precision,f1]
+else:
+    model_metrics = ['accuracy']
+
+#Training parameters
+if(on_sherlock):
+    batch_size = 256
+    canMultiprocess = False
+else:
+    batch_size = 32
+    canMultiprocess = False
 
 # =============================================================================
 # Extract only the needed data into a file
@@ -55,19 +81,52 @@ def extract_labels(labels = ['heartCondition'], label_table_path = label_table_f
     return label_df.dropna()
         
 
-def extract_records(healthCodes, data_file):
+def extract_records(healthCodes, data_path, out_path):
     '''
     Extracts the all of the healthcodes in healthCodes
-    from the data_file and saves to a new hdf5 file
+    from the data_file, aggregates and ignores healthcodes, 
+    and saves to a new hdf5 file.
     '''
     
+    #Complete file
+    data_file = h5py.File(data_path, 'r')
     
-    return 0
+    #The new file
+    new_file = h5py.File(out_path, 'a')
+    
+    #Go through the keys of the old file 
+    valid_codes = set(healthCodes)
+    for code in data_file.keys():
+        #If the healthcode is valid, copy into new file
+        if code in valid_codes:
+            data_file.copy(code, new_file)
+    
+    #Return the HDF file
+    return new_file
+
+def extract_data(data_file):
+    """
+    Wrapper function that extracts the labelled data from the 6mwt results
+    and splits the data
+    
+    Returns an HDF5 file containing all the filtered data
+    and a dataframe containing the labels for the healthcodes inside
+    
+    """
+    #Get labels
+    label_df = extract_labels(labels = labels_of_interest, label_table_path = label_table_file)
+    healthCodes = label_df.index.tolist()
+    
+    #Make a temporary data file in the same folder
+    out_path = os.path.dirname(data_file) + os.sep + "filtered_data.hdf5"
+    #Extract the records out from the 
+    filtered_data = extract_records(healthCodes, data_file, out_path)
+    
+    return filtered_data, label_df
 
 # =============================================================================
 # Split data files into validation and test
 # =============================================================================
-validation_split = 0.4
 
 def split_data(file_path, split, new_folder):
     '''
@@ -114,8 +173,6 @@ def split_data(file_path, split, new_folder):
         
         return (test_path, validation_path, split_num)
         
-
-
 # =============================================================================
 # Data generator
 # =============================================================================
@@ -126,13 +183,12 @@ class SixMWTSequence(keras.utils.Sequence):
     Saves on RAM by loading data from hdf5 files in memory
     __del__ way of closing files isn't great - find a better way sometime
     '''
-    def __init__(self, walk_data_path, rest_data_path, batch_size, balanceDataset=False):
+    def __init__(self, walk_data_path, batch_size, label_df):
         #Open up files
         self.lock = threading.Lock()
         self.walk_file = h5py.File(walk_data_path, 'r')
-        self.rest_file = h5py.File(rest_data_path, 'r')
         self.walk_data = self.walk_file['data']
-        self.rest_data = self.rest_file['data']
+        self.labels = label_df
         
         self.batch_size = batch_size
         
@@ -166,14 +222,11 @@ class SixMWTSequence(keras.utils.Sequence):
             return batch_x, batch_y
         
     def __del__(self):
-        self.walk_file.close()
-        self.rest_file.close()
-    
+        self.walk_file.close()    
 
 # =============================================================================
-# Machine Learning Model        
+# Defining the CNN
 # =============================================================================
- 
 
 model = Sequential()
 # ENTRY LAYER
@@ -198,7 +251,6 @@ model.add(BatchNormalization())
 model.add(Dense(1, activation='sigmoid'))
 print(model.summary())
 
-
 #Loss function - taken from kerasAC.custom_losses  -   need to figure out weights before using
 #def get_weighted_binary_crossentropy(w0_weights, w1_weights):
 #    import keras.backend as K
@@ -215,27 +267,13 @@ print(model.summary())
 #        return K.mean(K.binary_crossentropy(y_pred, y_true)*nonAmbigTimesWeightsPerTask, axis=-1);
 #    return weighted_binary_crossentropy; 
 
-if(on_sherlock):
-    from concise.metrics import tpr, tnr, fpr, fnr, precision, f1
-    model_metrics = ['accuracy',tpr,tnr,fpr,fnr,precision,f1]
-else:
-    model_metrics = ['accuracy']
-
 model.compile(loss='binary_crossentropy',
               optimizer='adam',
               metrics=model_metrics)
 
-
 # =============================================================================
 # Training the model
 # =============================================================================
-
-if(on_sherlock):
-    batch_size = 256
-    canMultiprocess = False
-else:
-    batch_size = 32
-    canMultiprocess = False
 
 #Split the dataset, if data not already split
 if(on_sherlock):
