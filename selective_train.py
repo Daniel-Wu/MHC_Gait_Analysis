@@ -13,8 +13,10 @@ Change output_dir, data_file vars below to point at those files
 
 TODO:
     Make this work with local filepaths
-    Rewrite the generator
-    Rewrite split data
+    implement class weights
+    play around with model architecture
+    Speed up training - overhead is load/strs
+    hyperparameter tuning
 
 @author: Daniel Wu
 """
@@ -46,7 +48,7 @@ labels_of_interest = ["heartCondition"]
 #File locations
 if(on_sherlock):
     output_dir = "/scratch/PI/euan/projects/mhc/code/daniel_code/results"
-    data_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/data_windows_walk.hdf5"
+    data_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/filtered_windows/data_windows_walk.hdf5"
     label_table_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/combined_health_label_table.pkl"
 else:
     output_dir = r"C:\Users\dwubu\Desktop"
@@ -84,8 +86,8 @@ def extract_labels(labels = ['heartCondition'], label_table_path = label_table_f
 def extract_records(healthCodes, data_path, out_path):
     '''
     Extracts the all of the healthcodes in healthCodes
-    from the data_file, aggregates and ignores healthcodes, 
-    and saves to a new hdf5 file.
+    from the data_file, aggregates and labels healthcode windows, 
+    and saves to a new hdf5 file with datasets representing a single window.
     '''
     
     #Complete file
@@ -96,15 +98,26 @@ def extract_records(healthCodes, data_path, out_path):
     
     #Go through the keys of the old file 
     valid_codes = set(healthCodes)
+    counter = 0
     for code in data_file.keys():
         #If the healthcode is valid, copy into new file
         if code in valid_codes:
-            data_file.copy(code, new_file)
+            #Old organization - same heirarchy
+            #data_file.copy(code, new_file)
+            
+            #Put each window as its own dataset in HDF
+            for i in range(data_file[code].shape[0]):
+            
+                d = new_file.create_dataset(str(counter), data = data_file[code][i])
+                d.attrs["healthCode"] = code
+                counter += 1
+            
+    data_file.close()
     
     #Return the HDF file
     return new_file
 
-def extract_data(data_file):
+def extract_data(data_file, out_file_name):
     """
     Wrapper function that extracts the labelled data from the 6mwt results
     and splits the data
@@ -118,7 +131,7 @@ def extract_data(data_file):
     healthCodes = label_df.index.tolist()
     
     #Make a temporary data file in the same folder
-    out_path = os.path.dirname(data_file) + os.sep + "filtered_data.hdf5"
+    out_path = os.path.dirname(data_file) + os.sep + out_file_name
     #Extract the records out from the 
     filtered_data = extract_records(healthCodes, data_file, out_path)
     
@@ -128,54 +141,60 @@ def extract_data(data_file):
 # Split data files into validation and test
 # =============================================================================
 
-def split_data(file_path, split, new_folder):
+def split_data(file_path, split):
     '''
     split_data(file_path, split)
-    splits the data in the 'data' dataset of the hdf file at filepath
+    splits the data in the hdf file at filepath
     with the given split ratio, between 0 and 1.
     Uses new_folder in the new filepath
     Returns a tuple with two filenames, the first with (1-split), the second with (split) percent of the data
     '''
     with h5py.File(file_path, 'r') as hdf_file:
-        data = hdf_file['data']
-        (num_samples, window_len, channels) = data.shape
         
-        split_num = math.floor(num_samples * split)
+        health_codes = list(hdf_file.keys())
+        #Make the split
+        validation_codes = health_codes[: math.floor(len(health_codes) * split)]
+        test_codes = health_codes[math.floor(len(health_codes) * split) :]
         
+        #Define path of valiation file
+        out_dir = os.path.dirname(file_path)
+        validation_path = os.path.join(out_dir, "validation_unfiltered.hdf5")
+     
         #Open and save the valdation set
-        out_dir = os.path.join(os.path.dirname(file_path), new_folder)
-        validation_path = os.path.join(out_dir, "validation.hdf5")
-        
         with h5py.File(validation_path, 'w') as validation_file:
-            validation_file.create_dataset('data', 
-                                           (split_num, 
-                                           window_len, 
-                                           channels)
-                                          )
-                                           
-            #validation_file['data'][:] = data[:split_num]
-            for i in range(split_num):
-                validation_file['data'][i] = data[i]
-        
+            
+            for code in validation_codes:
+                hdf_file.copy(code, validation_file)
+                
         #Open and save the test set
-        test_path = os.path.join(out_dir, "test.hdf5")
+        test_path = os.path.join(out_dir, "test_unfiltered.hdf5")
         
         with h5py.File(test_path, 'w') as test_file:
-            test_file.create_dataset('data', 
-                                      (num_samples - split_num, 
-                                      window_len, 
-                                      channels)
-                                     )
-            #test_file['data'][:] = data[split_num : ]
-            for i in range(split_num, num_samples):
-                test_file['data'][i - split_num] = data[i]
-                
+
+            for code in test_codes:
+                hdf_file.copy(code, test_file)
         
-        return (test_path, validation_path, split_num)
+    return test_path, validation_path
         
 # =============================================================================
 # Data generator
 # =============================================================================
+def parse_label(code, label_df):
+    """
+    Helper function that parses the labels on survey data for a given code
+    """
+    if labels_of_interest == ["heartCondition"]:
+        text_label = label_df.loc[code]
+        
+        #textlabel for heartCondition is a True False boolean
+        if text_label.bool():
+            return 1
+        else:
+            return 0
+        
+        
+    
+
 class SixMWTSequence(keras.utils.Sequence):
     '''
     SixMWTSequence
@@ -183,46 +202,44 @@ class SixMWTSequence(keras.utils.Sequence):
     Saves on RAM by loading data from hdf5 files in memory
     __del__ way of closing files isn't great - find a better way sometime
     '''
-    def __init__(self, walk_data_path, batch_size, label_df):
-        #Open up files
+    def __init__(self, data_file, batch_size, label_df):
+        #Open up file
         self.lock = threading.Lock()
-        self.walk_file = h5py.File(walk_data_path, 'r')
-        self.walk_data = self.walk_file['data']
-        self.labels = label_df
+        self.file = data_file
         
+        #Track labels and batch size
+        self.labels = label_df
         self.batch_size = batch_size
         
-        if(balanceDataset):
-            #Enforce a 50/50 split in each batch
-            self.num_rest_points = int(self.batch_size / 2)
-            self.num_walk_points = self.batch_size - self.num_rest_points
-        else:
-            #Find the number of walk_data_points per batch, proportional to total data points
-            self.num_walk_points = int((self.walk_data.shape[0]/(self.walk_data.shape[0] + self.rest_data.shape[0])) * self.batch_size)
-            self.num_rest_points = self.batch_size - self.num_walk_points
-
+        #Calculate length of points - len is too memory intensive
+        self.num_data = 0
+        for code in self.file.keys():
+            self.num_data += 1
+            
+        #Partition the dataset into batches
+        self.length = self.num_data // self.batch_size
 
     def __len__(self):
         #Find how many batches fit in our dataset
         #This "crops" out a couple datapoints not divisible by the batch at the end
-        return min(
-                int(self.walk_data.shape[0]/self.num_walk_points),
-                int(self.rest_data.shape[0]/self.num_rest_points))
+        return self.length
 
     def __getitem__(self, idx):
         
         with self.lock:
-            #Grab the batch members
-            batch_x = np.concatenate((self.walk_data[idx * self.num_walk_points : (idx + 1) * self.num_walk_points], 
-                                      self.rest_data[idx * self.num_rest_points : (idx + 1) * self.num_rest_points]))
-    
-            #Generate the labels
-            batch_y = np.concatenate(([1]*self.num_walk_points, [0]*self.num_rest_points))
+            
+            #Get the batch members
+            batch_x = [self.file[str(i)][:] for i in range(idx*self.batch_size, (idx + 1)*self.batch_size)]
+            batch_y = [parse_label(self.file[str(i)].attrs["healthCode"], self.labels) for i in range(idx*self.batch_size, (idx + 1)*self.batch_size)]
+   
+            #Convert to array
+            batch_x = np.asarray(batch_x)
+            batch_y = np.asarray(batch_y)
             
             return batch_x, batch_y
         
     def __del__(self):
-        self.walk_file.close()    
+        self.file.close()    
 
 # =============================================================================
 # Defining the CNN
@@ -277,30 +294,49 @@ model.compile(loss='binary_crossentropy',
 
 #Split the dataset, if data not already split
 if(on_sherlock):
-    out_dir = os.path.join(os.path.dirname(data_file), 'walk')
-    validation_path = os.path.join(out_dir, "validation.hdf5")
-    test_path = os.path.join(out_dir, "test.hdf5")
+    out_dir = os.path.dirname(data_file)
+    validation_path = os.path.join(out_dir, "validation_unfiltered.hdf5")
+    test_path = os.path.join(out_dir, "test_unfiltered.hdf5")
     
     if(os.path.exists(validation_path) and os.path.exists(test_path)):
-        print("Loading existing data files")
+        print("Loading existing unfiltered data files")
         walk_train = test_path
         walk_validation = validation_path
             
     else:
-        (walk_train, walk_validation, num_walk) = split_data(data_file, validation_split, 'walk')
+        (walk_train, walk_validation) = split_data(data_file, validation_split)
 
 #Make weights to balance the training set
 #class_weights = {0: num_rest/(num_rest + num_walk), 1: num_walk/(num_rest + num_walk)}
 
-#Alternatively, discard data so we have balanced training and validation sets
-training_batch_generator = SixMWTSequence(walk_train, rest_train, batch_size, True)
-validation_batch_generator = SixMWTSequence(walk_validation, rest_validation, batch_size, True)
+#Filter the data, if not already filtered
+out_path = os.path.dirname(walk_train) + os.sep + "filtered_train.hdf5"
+if os.path.exists(out_path):
+    print("Loading existing filtered train data")
+    filtered_train_file = h5py.File(out_path, 'a')
+    label_df = extract_labels(labels = labels_of_interest, label_table_path = label_table_file)
+    
+else:
+    (filtered_train_file, label_df) = extract_data(walk_train, "filtered_train.hdf5")
+    
+training_batch_generator = SixMWTSequence(filtered_train_file, batch_size, label_df)
+
+#Filter the data, if not already filtered
+out_path = os.path.dirname(walk_validation) + os.sep + "filtered_validation.hdf5"
+if os.path.exists(out_path):
+    print("Loading existing filtered validation data")
+    filtered_validation_file = h5py.File(out_path, 'a')
+    label_df = extract_labels(labels = labels_of_interest, label_table_path = label_table_file)
+    
+else:
+    (filtered_validation_file, label_df) = extract_data(walk_validation, "filtered_validation.hdf5")
+    
+validation_batch_generator = SixMWTSequence(filtered_validation_file, batch_size, label_df)
 
 num_training_samples = len(training_batch_generator)
 num_validation_samples = len(validation_batch_generator)
 num_epochs = 1000
 
-#%%
 
 #Callbacks
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2,
@@ -316,17 +352,13 @@ history = model.fit_generator(generator=training_batch_generator,
                               callbacks = [reduce_lr, early_stop, tb],
                               validation_data=validation_batch_generator,
                               #class_weight=class_weights,
-                              use_multiprocessing=canMultiprocess, #Windows must be False, else true
+                              use_multiprocessing=canMultiprocess, 
                               workers=8,
                               max_queue_size=32)
 
 #Clean up the temp files
 del training_batch_generator
 del validation_batch_generator
-#os.remove(walk_train)
-#os.remove(rest_train)
-#os.remove(walk_validation)
-#os.remove(rest_validation)
 
 #Save history and model
 with open(os.path.join(output_dir, 'train_history.pkl'), 'wb') as file_pi:
