@@ -32,6 +32,7 @@ and indexes by healthCode
 
 
 GET GENDER FROM NONIDENTIFIABLE DEMOGRAPHICS
+/scratch/PI/euan/projects/mhc/code/anna_code/demographics/all.tsv
 
 @author: dwubu
 """
