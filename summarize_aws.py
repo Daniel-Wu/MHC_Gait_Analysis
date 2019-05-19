@@ -2,7 +2,12 @@
 """
 Created on Fri Apr 19 11:11:54 2019
 
-Extracts aws activity reports for pretty graph making
+Simply counts the number of each type of aws signal and the attributes that come with it
+Produces a pickled dictionary containing fields
+"total" = total number of data points
+"[event_type]" = a field recording the number of occurances of each event type
+"([event_type], [attribute])" = a field recording the number of occurences of each report of a certain event type with a certain attribute
+"unique_ids" = a field containing a set of all the ids which sent reports
 
 @author: Daniel Wu
 """
@@ -10,10 +15,9 @@ Extracts aws activity reports for pretty graph making
 import gzip
 import json
 import numpy as np
+import pickle
 
-important_events = ['PageEnded']
-out_file_path = '/scratch/PI/euan/projects/mhc/code/daniel_code/aws/PageEndedActivities.txt'
-out_file = open(out_file_path, 'a')
+out_file_path = '/scratch/PI/euan/projects/mhc/code/daniel_code/aws/summary.pkl'
 
 #Table with AWS to healthcode mappings
 source_table="/scratch/PI/euan/projects/mhc/data/tables/cardiovascular-AwsClientIdTask-v1.tsv"
@@ -68,21 +72,32 @@ def map_aws_to_healthcode(source_table):
     return client_id_to_health_code_id
 
 
-def criteria(json_data):
+def process_data(json_data, summary_info):
     '''
-    Helper function that returns a bool representing whether to process json_data
+    Helper function that processes a single json_data aws report
+    and records its occurance in the total dictionary
     '''
-    return json_data['event_type'] in important_events
-
-def process_data(json_data):
-    '''
-    Helper function that processes a single json_data aws record
-    '''
-    out_file.write("{}\n".format(json.dumps(json_data)))
+    
+    event_type = json_data.get("event_type", "INVALID_EVENT")
+    
+    summary_info["total"] += 1
+    
+    if json_data.get("client", None) != None:
+        summary_info["unique_ids"].add(json_data["client"].get("client_id", "INVALID_ID"))
+        
+    summary_info[event_type] = summary_info.get(event_type, 0) + 1
+    
+    #Log each of the attributes
+    for key in json_data.get("attributes", {}).keys():
+        summary_info[(event_type, key)] = summary_info.get((event_type, key), 0) + 1
     
 # =============================================================================
 # Do the actual data parsing
 # =============================================================================
+
+#Dictionary to store the summary of the data
+summary_info = {"total" : 0, "unique_ids" : set()}
+
 #Load file
 with open('/scratch/PI/euan/projects/mhc/data/aws.all', 'r') as filenames:
     
@@ -96,13 +111,9 @@ with open('/scratch/PI/euan/projects/mhc/data/aws.all', 'r') as filenames:
             #Iterate through each record in the file
             for datapoint in data:
                 
-                
-                #Process valid datapoints
-                if(criteria(datapoint)):
+                #Process datapoints                    
+                process_data(datapoint, summary_info)
                     
-                    process_data(datapoint)
-                    
-
-#CLOSE THE FILE
-out_file.close()
-            
+#Save results
+with open(out_file_path, 'wb') as handle:
+    pickle.dump(summary_info, handle, protocol=pickle.HIGHEST_PROTOCOL)

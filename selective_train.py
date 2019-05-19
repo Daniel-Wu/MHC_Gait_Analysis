@@ -29,12 +29,14 @@ import keras
 import threading
 import math
 import pickle
+import random
 
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Reshape, Input, BatchNormalization
 from keras.layers import Conv1D, MaxPooling1D, GlobalAveragePooling1D
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, TensorBoard
 
+from sklearn.utils import class_weight
 
 #True when on sherlock (or any other linux system)
 on_sherlock = platform.system() == 'Linux'
@@ -43,7 +45,7 @@ on_sherlock = platform.system() == 'Linux'
 # PARAMETERS
 # =============================================================================
 validation_split = 0.4
-labels_of_interest = ["heartCondition"]
+labels_of_interest = ["heartAgeDataGender"]  #["heartCondition"]
 
 #File locations
 if(on_sherlock):
@@ -192,6 +194,19 @@ def parse_label(code, label_df):
         else:
             return 0
         
+    if labels_of_interest == ["heartAgeDataGender"]:
+        
+        text_label = label_df.loc[code]
+        
+        #heartAgeDataGender is a string '["HKBiologicalSex[fe?]male"]'
+        #Not sure how to handle "other" right now - return 0.5?
+        if text_label[0] == '["HKBiologicalSexMale"]':
+            return 1
+        elif text_label[0] == '["HKBiologicalSexFemale"]':
+            return 0
+        else:
+            return 0.5
+        
         
     
 
@@ -284,8 +299,13 @@ print(model.summary())
 #        return K.mean(K.binary_crossentropy(y_pred, y_true)*nonAmbigTimesWeightsPerTask, axis=-1);
 #    return weighted_binary_crossentropy; 
 
+
+
+#Define optimizer
+adam = keras.optimizers.Adam(lr=0.01) #Default is 0.001
+
 model.compile(loss='binary_crossentropy',
-              optimizer='adam',
+              optimizer=adam,
               metrics=model_metrics)
 
 # =============================================================================
@@ -306,8 +326,6 @@ if(on_sherlock):
     else:
         (walk_train, walk_validation) = split_data(data_file, validation_split)
 
-#Make weights to balance the training set
-#class_weights = {0: num_rest/(num_rest + num_walk), 1: num_walk/(num_rest + num_walk)}
 
 #Filter the data, if not already filtered
 out_path = os.path.dirname(walk_train) + os.sep + "filtered_train.hdf5"
@@ -337,10 +355,20 @@ num_training_samples = len(training_batch_generator)
 num_validation_samples = len(validation_batch_generator)
 num_epochs = 1000
 
+#Calculate class weights from 100 batches
+temp = np.array([])
+num_smpls = min(100, len(training_batch_generator))
+rand_idxs = random.sample(list(range(len(training_batch_generator))), num_smpls)
+for batch_num in rand_idxs:
+    _, temp_y = training_batch_generator[batch_num]
+    np.concatenate((temp, temp_y))
+class_weights = dict(enumerate(class_weight.compute_class_weight('balanced',
+                                                 np.unique(temp_y),
+                                                 temp_y)))
 
 #Callbacks
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                              patience=5, min_lr=0.001)
+                              patience=5, min_lr=1e-7)
 
 early_stop = EarlyStopping(patience=7)
 
@@ -351,7 +379,7 @@ history = model.fit_generator(generator=training_batch_generator,
                               verbose=1,
                               callbacks = [reduce_lr, early_stop, tb],
                               validation_data=validation_batch_generator,
-                              #class_weight=class_weights,
+                              class_weight=class_weights,
                               use_multiprocessing=canMultiprocess, 
                               workers=8,
                               max_queue_size=32)
