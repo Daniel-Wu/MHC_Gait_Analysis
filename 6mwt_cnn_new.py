@@ -43,7 +43,7 @@ labels_of_interest = ["heartAgeDataGender"]  #["heartCondition"]
 
 #File locations
 output_dir = "/scratch/PI/euan/projects/mhc/code/daniel_code/results"
-label_table_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/combined_health_label_table.pkl"
+label_table_file = "/scratch/PI/euan/projects/mhc/code/daniel_code/tables/combined_health_label_table.pkl"
 train_data_path = r"/scratch/PI/euan/projects/mhc/code/daniel_code/filtered_windows/filtered_train.hdf5"
 val_data_path = r"/scratch/PI/euan/projects/mhc/code/daniel_code/filtered_windows/filtered_validation.hdf5"
 
@@ -53,7 +53,7 @@ model_metrics = ['accuracy',tpr,tnr,fpr,fnr,precision,f1]
 
 #Training parameters
 batch_size = 256
-canMultiprocess = True
+canMultiprocess = False
 
 # =============================================================================
 # Data generator
@@ -85,14 +85,14 @@ def parse_label(code, label_df):
         text_label = label_df.loc[code]
         
         #heartAgeDataGender is a string '["HKBiologicalSex[fe]?male"]'
-        #Not sure how to handle "other" right now - return 0.5?
+        #Not sure how to handle "other" right now - return 0.5? Assume 50/50 for now
         if text_label[0] == '["HKBiologicalSexMale"]':
             return 1
         elif text_label[0] == '["HKBiologicalSexFemale"]':
             return 0
         else:
-            print("Uh-oh, there's a weird gender")
-            return 0.5
+            print("Uh-oh, there's a weird gender: {}".format(text_label[0]))
+            return random.randint(0,1)
         
         
     
@@ -203,7 +203,7 @@ model.compile(loss='binary_crossentropy',
 label_df = extract_labels(labels_of_interest, label_table_file)
 
 print("Loading filtered data")
-with h5py.File(train_data_path, 'a') as filtered_train_file, h5py.File(val_data_path, 'a') as filtered_validation_file:
+with h5py.File(train_data_path, 'r') as filtered_train_file, h5py.File(val_data_path, 'r') as filtered_validation_file:
     
     training_batch_generator = SixMWTSequence(filtered_train_file, batch_size, label_df)
     validation_batch_generator = SixMWTSequence(filtered_validation_file, batch_size, label_df)
@@ -220,10 +220,10 @@ with h5py.File(train_data_path, 'a') as filtered_train_file, h5py.File(val_data_
     rand_idxs = random.sample(list(range(len(training_batch_generator))), num_smpls)
     for batch_num in rand_idxs:
         _, temp_y = training_batch_generator[batch_num]
-        np.concatenate((temp, temp_y))
+        temp = np.concatenate((temp, temp_y))
     class_weights = dict(enumerate(class_weight.compute_class_weight('balanced',
-                                                     np.unique(temp_y),
-                                                     temp_y)))
+                                                     np.unique(temp),
+                                                     temp)))
     
     print("Our class weights are {}".format(class_weights))
     
@@ -237,13 +237,14 @@ with h5py.File(train_data_path, 'a') as filtered_train_file, h5py.File(val_data_
     
     history = model.fit_generator(generator=training_batch_generator,
                                   epochs=num_epochs,
-                                  verbose=1,
+                                  verbose=2,
                                   callbacks = [reduce_lr, early_stop, tb],
                                   validation_data=validation_batch_generator,
                                   class_weight=class_weights,
                                   use_multiprocessing=canMultiprocess, 
-                                  workers=8,
-                                  max_queue_size=32)
+                                  workers=4,
+                                  max_queue_size=32,
+                                  shuffle=True)
     
     print("Finished training, beginning cleanup.")
     #Clean up the temp files
